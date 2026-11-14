@@ -144,14 +144,17 @@ float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32);
 vec3 unp(vec4 c){ return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
 void main(){
   if (uShadow == 1) {
-    float lod = 1.0 + log2(1.0 + vZ * 0.12);
-    vec2 r = vec2(1.0 + vZ * 0.2) / uSize;
-    float a = textureLod(uTex, vUV, lod).a * 0.2;
-    for (int i = 0; i < 8; i++) {
-      float t = float(i) * 0.7854;
-      a += textureLod(uTex, vUV + vec2(cos(t), sin(t)) * r, lod).a * 0.1;
+    // чем выше над столом, тем шире размытие и бледнее тень
+    float lod = 1.0 + log2(1.0 + vZ * 0.3);
+    float rad = 1.2 + vZ * 0.5;
+    float a = textureLod(uTex, vUV, lod).a * 0.12;
+    for (int i = 0; i < 12; i++) {
+      float t = float(i) * 0.5236 + 0.26;
+      float rr = (i % 2 == 0) ? 0.5 : 1.0;
+      a += textureLod(uTex, vUV + vec2(cos(t), sin(t)) * rad * rr / uSize, lod).a * (0.88 / 12.0);
     }
-    float k = mix(0.2, 0.1, clamp(vZ / 160.0, 0.0, 1.0));
+    float h = clamp(vZ / 90.0, 0.0, 1.0);
+    float k = mix(0.16, 0.05, sqrt(h));
     o = vec4(0.0, 0.0, 0.0, a * k * uAlpha);
     return;
   }
@@ -580,7 +583,14 @@ function endDrag(e) {
     else { s.liftT = 0; s.landing = true; }
     s.carry = null;
   }
-  if (s.peel) s.peel.spring = true;
+  if (s.peel) {
+    const p = s.peel;
+    if (!s.carry && p.D > 0.5) {
+      // отпустил край: язычок падает обратно, поворачиваясь вокруг линии сгиба, как на петле
+      const t0 = p.p0[0] * p.u[0] + p.p0[1] * p.u[1];
+      p.fall = { c: foldC(s, p.D, t0, p.phi), R: peelR(s, p.D), m: Math.PI - p.phi, vm: 0, hits: 0 };
+    } else p.spring = true;
+  }
   trash.classList.remove("show", "hot");
   drag = null;
   cv.className = pick(e.clientX, e.clientY) ? "grab" : "";
@@ -749,7 +759,22 @@ function frame(now) {
   let peelLevel = 0;
   for (const s of stickers) {
     const p = s.peel;
-    if (p) {
+    if (p && p.fall) {
+      const f = p.fall;
+      // упругость винила тянет к плоскости, сверху добавляется вес язычка; воздух чуть тормозит
+      const acc = 9 * f.m + 14 * Math.sin(Math.min(f.m, Math.PI / 2)) + 4;
+      f.vm -= acc * dt;
+      f.vm *= Math.exp(-1.2 * dt);
+      f.m += f.vm * dt;
+      if (f.m <= 0) {
+        f.m = 0;
+        if (f.hits === 0) sfx.stick(Math.min(1, 0.25 + -f.vm / 14));
+        f.hits++;
+        // лёгкий отскок кромки, потом лёг совсем
+        if (f.hits < 3 && -f.vm > 2.5) f.vm = -f.vm * 0.16;
+        else s.peel = null;
+      }
+    } else if (p) {
       if (p.spring) {
         // отпустил: язычок падает, клей притягивает сгиб обратно — без перескока
         const k = 170, c = 2 * Math.sqrt(k) * 1.05;
@@ -820,7 +845,13 @@ function frame(now) {
     gl.uniform1f(U.uLayer, s.layer);
     gl.uniform1f(U.uAlpha, Math.max(0, Math.min(1, s.alpha)));
     const p = s.peel;
-    if (p && p.D > 0.5) {
+    if (p && p.fall) {
+      gl.uniform1f(U.uPeel, 1);
+      gl.uniform2f(U.uU, p.u[0], p.u[1]);
+      gl.uniform1f(U.uR, p.fall.R);
+      gl.uniform1f(U.uM, p.fall.m);
+      gl.uniform1f(U.uC, p.fall.c * sc);
+    } else if (p && p.D > 0.5) {
       const t0 = (p.p0[0] * p.u[0] + p.p0[1] * p.u[1]) * sc;
       gl.uniform1f(U.uPeel, 1);
       gl.uniform2f(U.uU, p.u[0], p.u[1]);
