@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Стикеры</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 6a2 2 0 0 1 2-2h20a2 2 0 0 1 2 2v12l-10 10H6a2 2 0 0 1-2-2z' fill='%23111'/%3E%3Cpath d='M28 18H20a2 2 0 0 0-2 2v8z' fill='%23bbb'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f1f1f2; --dot: #e2e2e5; --fg: #111113; --muted: #8e8e95; --faint: #b4b4ba;
+    --pill: #ffffff; --pill-line: #e6e6ea; --active: #111113; --active-fg: #fff;
+    --danger: #e5484d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --dot: #222226; --fg: #f2f2f4; --muted: #8b8b93; --faint: #5c5c64;
+      --pill: #1f1f23; --pill-line: #2c2c31; --active: #f2f2f4; --active-fg: #111113;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    background-color: var(--bg);
+    background-image: radial-gradient(var(--dot) 1px, transparent 1.4px);
+    background-size: 22px 22px;
+    color: var(--fg);
+    font: 13px/1.3 ui-sans-serif, -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    user-select: none; -webkit-user-select: none;
+  }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+  canvas.grab { cursor: grab; } canvas.grabbing { cursor: grabbing; }
+  .ui { position: fixed; z-index: 2; pointer-events: none; }
+  .ui > * { pointer-events: auto; }
+  header.ui { top: 16px; left: 16px; }
+  .eyebrow { font-size: 10px; letter-spacing: .12em; font-weight: 600; color: var(--muted); text-transform: uppercase; }
+  .title { font-size: 17px; font-weight: 600; margin-top: 4px; letter-spacing: -.01em; }
+  .title .n { color: var(--faint); font-weight: 500; margin-right: 4px; }
+  .top-right { top: 16px; right: 16px; display: flex; gap: 8px; align-items: center; }
+  .mono { font: 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--faint); }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  .btn {
+    height: 32px; padding: 0 12px; border-radius: 999px; background: var(--pill);
+    border: 1px solid var(--pill-line); font-weight: 500; font-size: 12px;
+  }
+  .btn:hover { border-color: var(--faint); }
+  .bottom { left: 0; right: 0; bottom: 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; pointer-events: none; }
+  .hint { font-size: 11px; color: var(--muted); text-align: center; padding: 0 16px; }
+  .hint span + span::before { content: ""; display: inline-block; width: 3px; height: 3px; border-radius: 50%; background: var(--faint); margin: 0 8px; vertical-align: middle; }
+  .seg {
+    pointer-events: auto; display: flex; gap: 2px; padding: 3px; border-radius: 999px;
+    background: var(--pill); border: 1px solid var(--pill-line); max-width: calc(100vw - 32px); overflow-x: auto;
+  }
+  .seg button { height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; transition: background .15s, color .15s; }
+  .seg button .k { color: var(--faint); margin-right: 5px; font-size: 10px; }
+  .seg button:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+  .seg button.on { background: var(--active); color: var(--active-fg); }
+  .seg button.on .k { color: color-mix(in srgb, var(--active-fg) 50%, transparent); }
+  #trash {
+    position: fixed; z-index: 2; right: 24px; bottom: 24px; width: 72px; height: 72px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--pill); border: 1px dashed var(--faint); color: var(--muted);
+    opacity: 0; transform: scale(.8); transition: opacity .2s, transform .2s, background .2s, color .2s; pointer-events: none;
+  }
+  #trash.show { opacity: 1; transform: scale(1); }
+  #trash.hot { background: var(--danger); color: #fff; border-color: var(--danger); transform: scale(1.12); }
+  #drop {
+    position: fixed; inset: 12px; z-index: 3; border: 2px dashed var(--faint); border-radius: 20px;
+    display: grid; place-items: center; font-size: 15px; font-weight: 500; color: var(--muted);
+    background: color-mix(in srgb, var(--bg) 70%, transparent); opacity: 0; pointer-events: none; transition: opacity .15s;
+  }
+  #drop.show { opacity: 1; }
+  #nogl { position: fixed; inset: 0; display: none; place-items: center; color: var(--muted); }
+  @media (max-width: 560px) { .hint { display: none; } .top-right .mono { display: none; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<header class="ui">
+  <div class="eyebrow">Peel sticker</div>
+  <div class="title"><span class="n" id="fxNum">3</span><span id="fxName">Призма</span></div>
+</header>
+
+<div class="ui top-right">
+  <span class="mono">WebGL 2</span>
+  <button class="btn" id="add">+ Своя картинка</button>
+  <input type="file" id="file" accept="image/*" multiple hidden>
+</div>
+
+<div class="ui bottom">
+  <div class="hint"><span>Тяни за край — отклеится</span><span>отклей целиком и перенеси</span><span>колесо — размер, ⇧ — поворот</span><span>кидай картинки прямо сюда</span></div>
+  <div class="seg" id="seg"></div>
+</div>
+
+<div id="trash" title="Удалить">
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
+</div>
+<div id="drop">Отпусти — приклею</div>
+<div id="nogl">Нужен браузер с WebGL 2</div>
+
+<script>
+(() => {
+"use strict";
+
+/* ---------- эффекты ---------- */
+const FX = ["Блик", "Блёстки", "Призма", "Рябь", "Растр"];
+let fx = 2;
+try { const r = localStorage.getItem("stickers.fx"), v = +r; if (r !== null && v >= 0 && v < FX.length) fx = v; } catch {}
+const seg = document.getElementById("seg");
+FX.forEach((name, i) => {
+  const b = document.createElement("button");
+  b.innerHTML = `<span class="k">${i + 1}</span>${name}`;
+  b.onclick = () => setFx(i);
+  seg.appendChild(b);
+});
+function setFx(i) {
+  fx = i;
+  [...seg.children].forEach((b, j) => b.classList.toggle("on", j === i));
+  document.getElementById("fxNum").textContent = i + 1;
+  document.getElementById("fxName").textContent = FX[i];
+  try { localStorage.setItem("stickers.fx", i); } catch {}
+}
+setFx(fx);
+
+/* ---------- WebGL ---------- */
+const cv = document.getElementById("gl");
+const gl = cv.getContext("webgl2", { antialias: true, premultipliedAlpha: true, alpha: true, depth: true });
+if (!gl) { document.getElementById("nogl").style.display = "grid"; return; }
+
+const VS = `#version 300 es
+in vec2 aUV;
+uniform vec2 uView, uSize, uPos, uU;
+uniform float uRot, uC, uR, uPeel, uLift, uLayer;
+uniform int uShadow;
+out vec2 vUV; out vec3 vN; out float vZ;
+const float F = 1600.0;
+const float PI = 3.14159265;
+void main(){
+  vec2 p = (aUV - 0.5) * uSize;
+  float z = 0.0; vec3 n = vec3(0.0, 0.0, 1.0);
+  if (uPeel > 0.5) {
+    float t = dot(p, uU);
+    float a = uC - t;
+    if (a > 0.0) {
+      vec2 perp = p - t * uU;
+      float th = a / uR, tn;
+      if (th < PI) { tn = uC - uR * sin(th); z = uR * (1.0 - cos(th)); n = vec3(sin(th) * uU, cos(th)); }
+      else { tn = uC + (a - PI * uR); z = 2.0 * uR; n = vec3(0.0, 0.0, -1.0); }
+      p = perp + tn * uU;
+    }
+  }
+  float cs = cos(uRot), sn = sin(uRot);
+  mat2 R = mat2(cs, sn, -sn, cs);
+  vec2 w = uPos + R * p;
+  n.xy = R * n.xy;
+  z += uLift;
+  vZ = z;
+  if (uShadow == 1) { w += vec2(0.22, 0.5) * z + vec2(0.0, 1.5); z = 0.0; }
+  vec2 ndc = (w / uView) * 2.0 - 1.0; ndc.y = -ndc.y;
+  float wv = 1.0 - z / F;
+  float depth = 1.0 - 2.0 * clamp((uLayer * 400.0 + z) / 60000.0, 0.0, 1.0);
+  gl_Position = vec4(ndc, depth * wv, wv);
+  vUV = aUV; vN = n;
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+precision highp int;
+in vec2 vUV; in vec3 vN; in float vZ;
+uniform sampler2D uTex, uBack;
+uniform int uShadow, uFx;
+uniform vec2 uSize, uMouse;
+uniform float uHover, uTime, uAlpha;
+out vec4 o;
+float hash(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+vec3 unp(vec4 c){ return c.a > 0.0 ? c.rgb / c.a : vec3(0.0); }
+void main(){
+  if (uShadow == 1) {
+    float lod = 1.0 + log2(1.0 + vZ * 0.12);
+    vec2 r = vec2(1.0 + vZ * 0.2) / uSize;
+    float a = textureLod(uTex, vUV, lod).a * 0.2;
+    for (int i = 0; i < 8; i++) {
+      float t = float(i) * 0.7854;
+      a += textureLod(uTex, vUV + vec2(cos(t), sin(t)) * r, lod).a * 0.1;
+    }
+    float k = mix(0.2, 0.1, clamp(vZ / 160.0, 0.0, 1.0));
+    o = vec4(0.0, 0.0, 0.0, a * k * uAlpha);
+    return;
+  }
+  vec4 base = texture(uTex, vUV);
+  if (base.a < 0.01) discard;
+  vec3 N = normalize(gl_FrontFacing ? vN : -vN);
+  vec3 L = normalize(vec3(-0.35, -0.6, 1.0));
+  float shade = clamp(dot(N, L) / L.z, 0.0, 1.25);
+  vec3 H = normalize(L + vec3(0.0, 0.0, 1.0));
+  float spec = max(pow(max(dot(N, H), 0.0), 50.0) - pow(H.z, 50.0), 0.0);
+
+  if (!gl_FrontFacing) {
+    vec2 bu = vec2(1.0 - vUV.x, vUV.y) * uSize / 260.0;
+    vec3 back = texture(uBack, bu).rgb;
+    vec3 c = back * mix(0.62, 1.0, shade) + spec * 0.25;
+    o = vec4(c * base.a, base.a) * uAlpha;
+    return;
+  }
+
+  vec3 col = unp(base);
+  float a = base.a;
+  vec2 pix = vUV * uSize, m = uMouse * uSize, dv = pix - m;
+  float d = length(dv);
+  float rad = max(uSize.x, uSize.y) * 0.42;
+  float fall = exp(-(d * d) / (rad * rad)) * uHover;
+  vec2 dir = dv / max(d, 1e-3);
+
+  if (fall > 0.002) {
+    if (uFx == 0) {
+      float g = exp(-(d * d) / (rad * rad * 0.35));
+      col += vec3(0.42) * g * uHover;
+    } else if (uFx == 1) {
+      vec2 cell = floor(pix / 3.0);
+      float h = hash(cell);
+      float ph = fract(h * 17.0 + (m.x * 0.7 + m.y) * 0.006 + uTime * 0.25);
+      float sp = smoothstep(0.9, 1.0, ph) * step(0.45, hash(cell + 7.1));
+      vec3 tint = 0.75 + 0.25 * cos(6.2831 * (h + vec3(0.0, 0.33, 0.67)));
+      col += tint * sp * 1.6 * fall + vec3(0.08) * fall;
+    } else if (uFx == 2) {
+      vec2 off = dir * 6.0 * fall / uSize;
+      vec4 r = texture(uTex, vUV + off), b = texture(uTex, vUV - off);
+      col.r = mix(col.r, unp(r).r, r.a);
+      col.b = mix(col.b, unp(b).b, b.a);
+      float hue = fract(dot(dv, vec2(0.0045, 0.003)) - uTime * 0.04);
+      vec3 rb = 0.5 + 0.5 * cos(6.2831 * (hue + vec3(0.0, 0.33, 0.67)));
+      col = mix(col, col * 0.7 + rb * 0.45, 0.3 * fall);
+    } else if (uFx == 3) {
+      float ph = d * 0.13 - uTime * 7.0;
+      float env = fall * smoothstep(0.0, 18.0, d);
+      vec2 uv2 = vUV + dir * sin(ph) * 4.0 * env / uSize;
+      vec4 c2 = texture(uTex, uv2);
+      if (c2.a > 0.05) col = unp(c2);
+      col *= 1.0 + 0.16 * cos(ph) * env;
+      col += vec3(0.12) * max(cos(ph), 0.0) * env;
+    } else {
+      mat2 rot = mat2(0.7071, -0.7071, 0.7071, 0.7071);
+      vec2 q = rot * pix / 6.5;
+      vec2 cc = fract(q) - 0.5;
+      float lum = dot(col, vec3(0.299, 0.587, 0.114));
+      float r = sqrt(clamp(1.0 - lum, 0.0, 1.0)) * 0.55 + 0.12;
+      float dotm = 1.0 - smoothstep(r - 0.07, r + 0.07, length(cc));
+      vec3 ht = mix(vec3(1.0), col, dotm);
+      col = mix(col, ht, smoothstep(0.0, 0.35, fall));
+    }
+  }
+  col = col * mix(0.6, 1.0, min(shade, 1.0)) + spec * 0.45;
+  o = vec4(col * a, a) * uAlpha;
+}`;
+
+function sh(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+gl.bindAttribLocation(prog, 0, "aUV");
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+const U = {};
+for (const n of ["uView","uSize","uPos","uU","uRot","uC","uR","uPeel","uLift","uLayer","uShadow","uTex","uBack","uFx","uMouse","uHover","uTime","uAlpha"])
+  U[n] = gl.getUniformLocation(prog, n);
+gl.uniform1i(U.uTex, 0); gl.uniform1i(U.uBack, 1);
+
+// сетка 64×64
+const G = 64;
+const verts = new Float32Array((G + 1) * (G + 1) * 2);
+for (let j = 0, k = 0; j <= G; j++) for (let i = 0; i <= G; i++) { verts[k++] = i / G; verts[k++] = j / G; }
+const idx = new Uint16Array(G * G * 6);
+for (let j = 0, k = 0; j < G; j++) for (let i = 0; i < G; i++) {
+  const a = j * (G + 1) + i, b = a + 1, c = a + G + 1, d = c + 1;
+  idx.set([a, c, b, b, c, d], k); k += 6;
+}
+const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+
+function texFrom(canvas, repeat) {
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  const w = repeat ? gl.REPEAT : gl.CLAMP_TO_EDGE;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, w);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, w);
+  const ext = gl.getExtension("EXT_texture_filter_anisotropic");
+  if (ext) gl.texParameterf(gl.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, 4);
+  return t;
+}
+
+// подложка с надписью
+const backTex = (() => {
+  const c = mk(512, 512), x = c.getContext("2d");
+  x.fillStyle = "#e3e3e6"; x.fillRect(0, 0, 512, 512);
+  x.fillStyle = "#c9c9ce"; x.font = "600 30px ui-sans-serif, -apple-system, Helvetica, Arial, sans-serif";
+  x.textAlign = "center"; x.textBaseline = "middle";
+  x.translate(256, 256); x.rotate(-Math.PI / 5);
+  for (let r = -6; r <= 6; r++) for (let q = -4; q <= 4; q++)
+    x.fillText("Stickers", q * 150 + (r & 1) * 75, r * 64);
+  return texFrom(c, true);
+})();
+
+/* ---------- стикеры ---------- */
+function mk(w, h) { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; }
+
+// обрезать прозрачные поля
+function trim(src) {
+  const lim = 1400;
+  const k = Math.min(1, lim / Math.max(src.width, src.height));
+  const w = Math.max(1, Math.round(src.width * k)), h = Math.max(1, Math.round(src.height * k));
+  const c = mk(w, h), x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(src, 0, 0, w, h);
+  const d = x.getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1, clear = 0;
+  for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
+    const a = d[(y * w + i) * 4 + 3];
+    if (a < 250) clear++;
+    if (a > 8) { if (i < x0) x0 = i; if (i > x1) x1 = i; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return { canvas: c, opaque: true };
+  const opaque = clear / (w * h) < 0.01;
+  const out = mk(x1 - x0 + 1, y1 - y0 + 1);
+  out.getContext("2d").drawImage(c, -x0, -y0);
+  return { canvas: out, opaque };
+}
+
+// вырубка: белая кайма вокруг силуэта
+function dieCut(src) {
+  const { canvas: img, opaque } = trim(src);
+  const S = 640, B = Math.round(S * 0.045), pad = B + 6;
+  const k = Math.min((S - 2 * pad) / img.width, (S - 2 * pad) / img.height);
+  const iw = Math.round(img.width * k), ih = Math.round(img.height * k);
+  const W = iw + 2 * pad, H = ih + 2 * pad;
+  const art = mk(W, H), ax = art.getContext("2d");
+  if (opaque) {
+    ax.beginPath(); ax.roundRect(pad, pad, iw, ih, Math.min(iw, ih) * 0.07); ax.clip();
+  }
+  ax.imageSmoothingQuality = "high";
+  ax.drawImage(img, pad, pad, iw, ih);
+  const sil = mk(W, H), sx = sil.getContext("2d");
+  sx.drawImage(art, 0, 0);
+  sx.globalCompositeOperation = "source-in"; sx.fillStyle = "#fff"; sx.fillRect(0, 0, W, H);
+  const out = mk(W, H), ox = out.getContext("2d");
+  for (const r of [B, B * 0.72, B * 0.45, B * 0.2])
+    for (let a = 0; a < 48; a++) {
+      const t = a / 48 * Math.PI * 2;
+      ox.drawImage(sil, Math.cos(t) * r, Math.sin(t) * r);
+    }
+  ox.drawImage(art, 0, 0);
+  return out;
+}
+
+// маска и расстояние до края (для «за край или за середину»)
+function buildMask(canvas) {
+  const M = 160, k = M / Math.max(canvas.width, canvas.height);
+  const w = Math.max(2, Math.round(canvas.width * k)), h = Math.max(2, Math.round(canvas.height * k));
+  const c = mk(w, h), x = c.getContext("2d", { willReadFrequently: true });
+  x.drawImage(canvas, 0, 0, w, h);
+  const px = x.getImageData(0, 0, w, h).data;
+  const dist = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) dist[i] = px[i * 4 + 3] > 127 ? 1e6 : 0;
+  const at = (i, j) => (i < 0 || j < 0 || i >= w || j >= h) ? 0 : dist[j * w + i];
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const p = j * w + i; if (!dist[p]) continue;
+    dist[p] = Math.min(dist[p], at(i - 1, j) + 1, at(i, j - 1) + 1, at(i - 1, j - 1) + 1.414, at(i + 1, j - 1) + 1.414);
+  }
+  let max = 0;
+  for (let j = h - 1; j >= 0; j--) for (let i = w - 1; i >= 0; i--) {
+    const p = j * w + i; if (!dist[p]) continue;
+    dist[p] = Math.min(dist[p], at(i + 1, j) + 1, at(i, j + 1) + 1, at(i + 1, j + 1) + 1.414, at(i - 1, j + 1) + 1.414);
+    if (dist[p] > max) max = dist[p];
+  }
+  return { w, h, dist, max, unit: 1 / Math.max(w, h) };
+}
+
+let stickers = [];
+let topLayer = 0;
+let nextId = 1;
+
+function addSticker(canvas, opts = {}) {
+  const long = opts.long ?? Math.min(300, Math.min(innerWidth, innerHeight) * 0.38);
+  const s = {
+    id: opts.id ?? (Date.now().toString(36) + (nextId++)),
+    canvas, tex: texFrom(canvas, false), mask: buildMask(canvas),
+    aspect: canvas.width / canvas.height,
+    long, x: opts.x ?? innerWidth / 2, y: opts.y ?? innerHeight / 2, rot: opts.rot ?? 0,
+    layer: opts.layer ?? ++topLayer,
+    lift: opts.lift ?? 0, liftV: 0, liftT: 0,
+    alpha: opts.alpha ?? 1, alphaT: 1, scaleIn: opts.scaleIn ?? 1,
+    hover: 0, mu: 0.5, mv: 0.5,
+    peel: null, carry: null, blob: opts.blob || null, dead: false,
+  };
+  topLayer = Math.max(topLayer, s.layer);
+  stickers.push(s);
+  sortStickers();
+  if (!s.blob) canvas.toBlob(b => { s.blob = b; save(); }, "image/png");
+  return s;
+}
+function size(s) {
+  return s.aspect >= 1 ? [s.long, s.long / s.aspect] : [s.long * s.aspect, s.long];
+}
+function sortStickers() { stickers.sort((a, b) => a.layer - b.layer); }
+function bringToTop(s) {
+  s.layer = ++topLayer;
+  sortStickers();
+  if (topLayer > 120) { stickers.forEach((t, i) => t.layer = i + 1); topLayer = stickers.length; }
+}
+
+function toLocal(s, px, py) {
+  const dx = px - s.x, dy = py - s.y, c = Math.cos(-s.rot), n = Math.sin(-s.rot);
+  return [dx * c - dy * n, dx * n + dy * c];
+}
+function maskAt(s, lx, ly) {
+  const [w, h] = size(s), m = s.mask;
+  const i = Math.floor((lx / w + 0.5) * m.w), j = Math.floor((ly / h + 0.5) * m.h);
+  if (i < 0 || j < 0 || i >= m.w || j >= m.h) return 0;
+  return m.dist[j * m.w + i] * m.unit * s.long; // в css px
+}
+function gradAt(s, lx, ly) {
+  const e = s.long / s.mask.w * 1.5;
+  const gx = maskAt(s, lx + e, ly) - maskAt(s, lx - e, ly);
+  const gy = maskAt(s, lx, ly + e) - maskAt(s, lx, ly - e);
+  const l = Math.hypot(gx, gy);
+  return l > 1e-4 ? [gx / l, gy / l] : [0, 0];
+}
+function pick(px, py) {
+  for (let i = stickers.length - 1; i >= 0; i--) {
+    const s = stickers[i]; if (s.dead) continue;
+    const [lx, ly] = toLocal(s, px, py);
+    if (maskAt(s, lx, ly) > 0) return s;
+  }
+  return null;
+}
+
+/* ---------- ввод ---------- */
+const ptr = { x: -1e4, y: -1e4 };
+let drag = null;
+let hovered = null;
+const trash = document.getElementById("trash");
+
+function overTrash(x, y) {
+  const r = trash.getBoundingClientRect();
+  return Math.hypot(x - (r.left + r.width / 2), y - (r.top + r.height / 2)) < 60;
+}
+
+cv.addEventListener("pointerdown", e => {
+  ptr.x = e.clientX; ptr.y = e.clientY;
+  const s = pick(e.clientX, e.clientY);
+  if (!s) return;
+  e.preventDefault();
+  cv.setPointerCapture(e.pointerId);
+  bringToTop(s);
+  const [lx, ly] = toLocal(s, e.clientX, e.clientY);
+  const d = maskAt(s, lx, ly);
+  const band = Math.max(26, s.mask.max * s.mask.unit * s.long * 0.42);
+  s.peel = null;
+  if (d < band) {
+    drag = { s, mode: "pending", p0: [lx, ly], grad: gradAt(s, lx, ly), sx: e.clientX, sy: e.clientY, id: e.pointerId };
+  } else {
+    drag = { s, mode: "carry", id: e.pointerId };
+    startCarry(s, [lx, ly], null);
+  }
+  cv.className = "grabbing";
+});
+
+// держим стикер за ту точку, за которую взяли
+function placeCarry(s) {
+  const q = s.peel, D = q ? Math.max(q.D, 0) : 0, u = q ? q.u : [0, 0];
+  const lx = s.carry.p0[0] + u[0] * D, ly = s.carry.p0[1] + u[1] * D;
+  const c = Math.cos(s.rot), n = Math.sin(s.rot);
+  s.x = ptr.x - (lx * c - ly * n);
+  s.y = ptr.y - (lx * n + ly * c);
+}
+
+function startCarry(s, p0, peel) {
+  s.carry = { p0 };
+  if (peel) { peel.spring = true; s.peel = peel; } else s.peel = null;
+  s.liftT = peel ? 52 : 26;
+  trash.classList.add("show");
+}
+
+cv.addEventListener("pointermove", e => {
+  ptr.x = e.clientX; ptr.y = e.clientY;
+  if (!drag || drag.id !== e.pointerId) {
+    const h = pick(e.clientX, e.clientY);
+    hovered = h;
+    cv.className = h ? "grab" : "";
+    return;
+  }
+  const s = drag.s;
+  if (drag.mode === "pending") {
+    if (Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5) return;
+    const [lx, ly] = toLocal(s, e.clientX, e.clientY);
+    const vx = lx - drag.p0[0], vy = ly - drag.p0[1], l = Math.hypot(vx, vy);
+    const inward = (vx * drag.grad[0] + vy * drag.grad[1]) / l;
+    if (inward < -0.35) { drag.mode = "carry"; startCarry(s, drag.p0, null); }
+    else drag.mode = "peel";
+  }
+  if (drag.mode === "peel") {
+    const [lx, ly] = toLocal(s, e.clientX, e.clientY);
+    const vx = lx - drag.p0[0], vy = ly - drag.p0[1], D = Math.hypot(vx, vy);
+    if (D < 0.5) { s.peel = null; return; }
+    const u = [vx / D, vy / D];
+    s.peel = { p0: drag.p0, u, D, vD: 0, spring: false };
+    // насколько отклеено: если больше 60% — стикер снят
+    const [w, h] = size(s);
+    let tmax = -1e9;
+    for (const [cx, cy] of [[-w/2,-h/2],[w/2,-h/2],[-w/2,h/2],[w/2,h/2]]) tmax = Math.max(tmax, cx * u[0] + cy * u[1]);
+    const t0 = drag.p0[0] * u[0] + drag.p0[1] * u[1];
+    const c = foldC(s, D, t0);
+    if ((c - t0) / Math.max(1, tmax - t0) > 0.6) {
+      drag.mode = "carry";
+      startCarry(s, drag.p0, s.peel);
+    }
+  }
+  if (drag.mode === "carry") { placeCarry(s); trash.classList.toggle("hot", overTrash(e.clientX, e.clientY)); }
+});
+
+function endDrag(e) {
+  if (!drag || drag.id !== e.pointerId) return;
+  const s = drag.s;
+  if (drag.mode === "carry") {
+    ptr.x = e.clientX; ptr.y = e.clientY; placeCarry(s);
+    if (overTrash(e.clientX, e.clientY)) { s.dead = true; s.alphaT = 0; s.liftT = 70; }
+    else s.liftT = 0;
+    s.carry = null;
+  }
+  if (s.peel) s.peel.spring = true;
+  trash.classList.remove("show", "hot");
+  drag = null;
+  cv.className = pick(e.clientX, e.clientY) ? "grab" : "";
+  save();
+}
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("pointerleave", () => { if (!drag) { hovered = null; ptr.x = ptr.y = -1e4; } });
+
+cv.addEventListener("wheel", e => {
+  const s = pick(e.clientX, e.clientY);
+  if (!s) return;
+  e.preventDefault();
+  if (e.shiftKey || e.altKey) {
+    s.rot += (e.deltaY || e.deltaX) * 0.004;
+  } else {
+    const k = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0018));
+    s.long = Math.min(Math.max(s.long * k, 70), Math.max(innerWidth, innerHeight) * 0.9);
+  }
+  save();
+}, { passive: false });
+
+addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT") return;
+  const n = +e.key;
+  if (n >= 1 && n <= FX.length) setFx(n - 1);
+  if ((e.key === "Backspace" || e.key === "Delete") && hovered && !drag) {
+    hovered.dead = true; hovered.alphaT = 0; hovered.liftT = 40; hovered = null; save();
+  }
+});
+
+/* ---------- свои картинки ---------- */
+const fileIn = document.getElementById("file");
+document.getElementById("add").onclick = () => fileIn.click();
+fileIn.onchange = () => { addFiles([...fileIn.files], innerWidth / 2, innerHeight / 2); fileIn.value = ""; };
+
+async function addFiles(files, x, y) {
+  let i = 0;
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) continue;
+    try {
+      const bmp = await createImageBitmap(f);
+      const s = addSticker(dieCut(bmp), {
+        x: x + i * 28, y: y + i * 22, rot: (Math.random() - 0.5) * 0.25, lift: 90, alpha: 0, scaleIn: 1.15,
+      });
+      s.liftT = 0; s.alphaT = 1;
+      i++;
+    } catch (err) { console.warn("не открылась картинка", f.name, err); }
+  }
+}
+const dropEl = document.getElementById("drop");
+let dragDepth = 0;
+addEventListener("dragenter", e => { if ([...e.dataTransfer.types].includes("Files")) { dragDepth++; dropEl.classList.add("show"); e.preventDefault(); } });
+addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; dropEl.classList.remove("show"); } });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => {
+  e.preventDefault(); dragDepth = 0; dropEl.classList.remove("show");
+  addFiles([...e.dataTransfer.files], e.clientX, e.clientY);
+});
+addEventListener("paste", e => {
+  const files = [...(e.clipboardData?.items || [])].filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+  if (files.length) addFiles(files, ptr.x > 0 ? ptr.x : innerWidth / 2, ptr.y > 0 ? ptr.y : innerHeight / 2);
+});
+
+/* ---------- сохранение (IndexedDB) ---------- */
+let db = null;
+function openDb() {
+  return new Promise(res => {
+    try {
+      const r = indexedDB.open("stickers", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("s", { keyPath: "id" });
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => res(null);
+    } catch { res(null); }
+  });
+}
+let saveTimer = 0;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    if (!db) return;
+    try {
+      const tx = db.transaction("s", "readwrite"), st = tx.objectStore("s");
+      st.clear();
+      for (const s of stickers) if (!s.dead && s.blob)
+        st.put({ id: s.id, blob: s.blob, x: s.x / innerWidth, y: s.y / innerHeight, rot: s.rot, long: s.long, layer: s.layer });
+    } catch (err) { console.warn(err); }
+  }, 400);
+}
+function loadAll() {
+  return new Promise(res => {
+    if (!db) return res([]);
+    try {
+      const r = db.transaction("s").objectStore("s").getAll();
+      r.onsuccess = () => res(r.result || []); r.onerror = () => res([]);
+    } catch { res([]); }
+  });
+}
+
+/* ---------- стартовый набор ---------- */
+function emojiCanvas(ch) {
+  const c = mk(560, 560), x = c.getContext("2d");
+  x.font = `440px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText(ch, 280, 300);
+  return c;
+}
+function wordCanvas() {
+  const c = mk(900, 420), x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 900, 0);
+  g.addColorStop(0, "#ff5a36"); g.addColorStop(0.5, "#ff2d87"); g.addColorStop(1, "#7a4dff");
+  x.fillStyle = g;
+  x.font = `900 210px ui-rounded, "SF Pro Rounded", -apple-system, "Arial Black", sans-serif`;
+  x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText("отклей", 450, 140);
+  x.fillStyle = "#111";
+  x.font = `800 120px ui-rounded, "SF Pro Rounded", -apple-system, "Arial Black", sans-serif`;
+  x.fillText("меня", 450, 310);
+  return c;
+}
+function seed() {
+  const W = innerWidth, H = innerHeight, small = W < 640;
+  const base = Math.min(small ? 170 : 250, Math.min(W, H) * 0.3);
+  const items = [
+    [wordCanvas(), 0.5, 0.44, -0.06, base * 1.25],
+    [emojiCanvas("🍒"), 0.24, 0.32, 0.18, base * 0.85],
+    [emojiCanvas("⭐️"), 0.77, 0.3, -0.2, base * 0.8],
+    [emojiCanvas("🐸"), 0.26, 0.68, -0.12, base * 0.9],
+    [emojiCanvas("🔥"), 0.75, 0.68, 0.1, base * 0.85],
+  ];
+  if (small) { items[1][1] = 0.28; items[2][1] = 0.74; items[3][1] = 0.28; items[4][1] = 0.72; items[0][2] = 0.47; items[1][2] = 0.24; items[2][2] = 0.24; items[3][2] = 0.72; items[4][2] = 0.72; }
+  for (const [c, x, y, rot, long] of items) addSticker(dieCut(c), { x: x * W, y: y * H, rot, long });
+}
+
+/* ---------- кадр ---------- */
+let dpr = 1, vw = 0, vh = 0;
+function resize() {
+  dpr = Math.min(devicePixelRatio || 1, 2);
+  vw = innerWidth; vh = innerHeight;
+  cv.width = Math.round(vw * dpr); cv.height = Math.round(vh * dpr);
+}
+addEventListener("resize", resize);
+resize();
+
+function foldC(s, D, t0) {
+  const R = peelR(s, D);
+  return t0 + (D + Math.PI * R) / 2;
+}
+function peelR(s, D) { return Math.min(s.long * 0.1, 2 + D * 0.22); }
+
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+gl.depthFunc(gl.LEQUAL);
+
+let last = performance.now();
+const t0ms = last;
+function frame(now) {
+  const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  // физика
+  for (const s of stickers) {
+    const p = s.peel;
+    if (p && p.spring) {
+      const k = 260, c = 2 * Math.sqrt(k) * 0.62;
+      p.vD += (-k * p.D - c * p.vD) * dt; p.D += p.vD * dt;
+      if (Math.abs(p.D) < 0.3 && Math.abs(p.vD) < 2) s.peel = null;
+    }
+    if (s.carry) placeCarry(s);
+    { const k = 320, c = 2 * Math.sqrt(k) * 0.8; s.liftV += (k * (s.liftT - s.lift) - c * s.liftV) * dt; s.lift += s.liftV * dt; }
+    s.alpha += (s.alphaT - s.alpha) * Math.min(1, dt * 12);
+    s.scaleIn += (1 - s.scaleIn) * Math.min(1, dt * 10);
+    const hv = (s === hovered && !drag) || (drag && drag.s === s && drag.mode !== "carry") ? 1 : 0;
+    s.hover += (hv - s.hover) * Math.min(1, dt * 8);
+    if (s.hover > 0.001 && hv) {
+      const [lx, ly] = toLocal(s, ptr.x, ptr.y), [w, h] = size(s);
+      s.mu = lx / w + 0.5; s.mv = ly / h + 0.5;
+    }
+  }
+  const before = stickers.length;
+  stickers = stickers.filter(s => !(s.dead && s.alpha < 0.01));
+  if (stickers.length !== before) save();
+
+  // рисуем
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.uniform2f(U.uView, vw, vh);
+  gl.uniform1f(U.uTime, (now - t0ms) / 1000);
+  gl.uniform1i(U.uFx, fx);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, backTex);
+  gl.activeTexture(gl.TEXTURE0);
+
+  for (const s of stickers) {
+    const [w, h] = size(s), sc = s.scaleIn;
+    gl.bindTexture(gl.TEXTURE_2D, s.tex);
+    gl.uniform2f(U.uSize, w * sc, h * sc);
+    gl.uniform2f(U.uPos, s.x, s.y);
+    gl.uniform1f(U.uRot, s.rot);
+    gl.uniform1f(U.uLift, Math.max(0, s.lift));
+    gl.uniform1f(U.uLayer, s.layer);
+    gl.uniform1f(U.uAlpha, Math.max(0, Math.min(1, s.alpha)));
+    const p = s.peel;
+    if (p && p.D > 0.5) {
+      const R = peelR(s, p.D), t0 = (p.p0[0] * p.u[0] + p.p0[1] * p.u[1]) * sc;
+      gl.uniform1f(U.uPeel, 1);
+      gl.uniform2f(U.uU, p.u[0], p.u[1]);
+      gl.uniform1f(U.uR, R);
+      gl.uniform1f(U.uC, t0 + (p.D + Math.PI * R) / 2);
+    } else gl.uniform1f(U.uPeel, 0);
+    gl.uniform2f(U.uMouse, s.mu, s.mv);
+    gl.uniform1f(U.uHover, s.hover);
+
+    // тень: поверх нижних стикеров, без глубины
+    gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
+    gl.uniform1i(U.uShadow, 1);
+    gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
+    // сам стикер
+    gl.enable(gl.DEPTH_TEST); gl.depthMask(true);
+    gl.uniform1i(U.uShadow, 0);
+    gl.drawElements(gl.TRIANGLES, idx.length, gl.UNSIGNED_SHORT, 0);
+  }
+  requestAnimationFrame(frame);
+}
+
+(async () => {
+  db = await openDb();
+  const saved = await loadAll();
+  if (saved.length) {
+    saved.sort((a, b) => a.layer - b.layer);
+    for (const r of saved) {
+      try {
+        const bmp = await createImageBitmap(r.blob);
+        const c = mk(bmp.width, bmp.height); c.getContext("2d").drawImage(bmp, 0, 0);
+        addSticker(c, {
+          id: r.id, blob: r.blob, long: r.long, rot: r.rot, layer: r.layer,
+          x: Math.min(Math.max(r.x * innerWidth, 40), innerWidth - 40),
+          y: Math.min(Math.max(r.y * innerHeight, 40), innerHeight - 40),
+        });
+      } catch {}
+    }
+  }
+  if (!stickers.length) seed();
+  requestAnimationFrame(frame);
+})();
+})();
+</script>
+</body>
+</html>
