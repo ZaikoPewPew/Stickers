@@ -6,23 +6,18 @@
 <title>Стикеры</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M4 6a2 2 0 0 1 2-2h20a2 2 0 0 1 2 2v12l-10 10H6a2 2 0 0 1-2-2z' fill='%23111'/%3E%3Cpath d='M28 18H20a2 2 0 0 0-2 2v8z' fill='%23bbb'/%3E%3C/svg%3E">
 <style>
+  /* фон как в референсе: светло-серый, еле заметная точечная сетка — одинаковый в любой теме */
   :root {
-    --bg: #f1f1f2; --dot: #e2e2e5; --fg: #111113; --muted: #8e8e95; --faint: #b4b4ba;
-    --pill: #ffffff; --pill-line: #e6e6ea; --active: #111113; --active-fg: #fff;
-    --danger: #e5484d;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #141416; --dot: #222226; --fg: #f2f2f4; --muted: #8b8b93; --faint: #5c5c64;
-      --pill: #1f1f23; --pill-line: #2c2c31; --active: #f2f2f4; --active-fg: #111113;
-    }
+    color-scheme: light;
+    --bg: #f2f2f3; --dot: rgba(0, 0, 0, .045); --fg: #111113; --muted: #8e8e95; --faint: #b4b4ba;
+    --pill: #ffffff; --danger: #e5484d;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; }
   body {
     background-color: var(--bg);
-    background-image: radial-gradient(var(--dot) 1px, transparent 1.4px);
-    background-size: 22px 22px;
+    background-image: radial-gradient(var(--dot) 0.9px, transparent 1.3px);
+    background-size: 9px 9px;
     color: var(--fg);
     font: 13px/1.3 ui-sans-serif, -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -76,22 +71,6 @@
 <body>
 <canvas id="gl"></canvas>
 
-<header class="ui">
-  <div class="eyebrow">Peel sticker</div>
-  <div class="title"><span class="n" id="fxNum">3</span><span id="fxName">Призма</span></div>
-</header>
-
-<div class="ui top-right">
-  <span class="mono">WebGL 2</span>
-  <button class="btn" id="add">+ Своя картинка</button>
-  <input type="file" id="file" accept="image/*" multiple hidden>
-</div>
-
-<div class="ui bottom">
-  <div class="hint"><span>Тяни за край — отклеится</span><span>отклей целиком и перенеси</span><span>колесо — размер, ⇧ — поворот</span><span>кидай картинки прямо сюда</span></div>
-  <div class="seg" id="seg"></div>
-</div>
-
 <div id="trash" title="Удалить">
   <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>
 </div>
@@ -102,25 +81,10 @@
 (() => {
 "use strict";
 
-/* ---------- эффекты ---------- */
+/* ---------- эффекты: блёстки по умолчанию, 1–5 переключают ---------- */
 const FX = ["Блик", "Блёстки", "Призма", "Рябь", "Растр"];
-let fx = 2;
-try { const r = localStorage.getItem("stickers.fx"), v = +r; if (r !== null && v >= 0 && v < FX.length) fx = v; } catch {}
-const seg = document.getElementById("seg");
-FX.forEach((name, i) => {
-  const b = document.createElement("button");
-  b.innerHTML = `<span class="k">${i + 1}</span>${name}`;
-  b.onclick = () => setFx(i);
-  seg.appendChild(b);
-});
-function setFx(i) {
-  fx = i;
-  [...seg.children].forEach((b, j) => b.classList.toggle("on", j === i));
-  document.getElementById("fxNum").textContent = i + 1;
-  document.getElementById("fxName").textContent = FX[i];
-  try { localStorage.setItem("stickers.fx", i); } catch {}
-}
-setFx(fx);
+let fx = 1;
+function setFx(i) { fx = i; }
 
 /* ---------- WebGL ---------- */
 const cv = document.getElementById("gl");
@@ -130,7 +94,7 @@ if (!gl) { document.getElementById("nogl").style.display = "grid"; return; }
 const VS = `#version 300 es
 in vec2 aUV;
 uniform vec2 uView, uSize, uPos, uU;
-uniform float uRot, uC, uR, uPeel, uLift, uLayer;
+uniform float uRot, uC, uR, uM, uPeel, uLift, uLayer;
 uniform int uShadow;
 out vec2 vUV; out vec3 vN; out float vZ;
 const float F = 1600.0;
@@ -144,8 +108,12 @@ void main(){
     if (a > 0.0) {
       vec2 perp = p - t * uU;
       float th = a / uR, tn;
-      if (th < PI) { tn = uC - uR * sin(th); z = uR * (1.0 - cos(th)); n = vec3(sin(th) * uU, cos(th)); }
-      else { tn = uC + (a - PI * uR); z = 2.0 * uR; n = vec3(0.0, 0.0, -1.0); }
+      // загиб вокруг цилиндра радиуса uR до угла uM, дальше — прямой язычок, поднятый над стикером
+      if (th < uM) { tn = uC - uR * sin(th); z = uR * (1.0 - cos(th)); n = vec3(sin(th) * uU, cos(th)); }
+      else {
+        float s = sin(uM), c = cos(uM), e = a - uM * uR;
+        tn = uC - uR * s - e * c; z = uR * (1.0 - c) + e * s; n = vec3(s * uU, c);
+      }
       p = perp + tn * uU;
     }
   }
@@ -266,7 +234,7 @@ gl.linkProgram(prog);
 if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
 gl.useProgram(prog);
 const U = {};
-for (const n of ["uView","uSize","uPos","uU","uRot","uC","uR","uPeel","uLift","uLayer","uShadow","uTex","uBack","uFx","uMouse","uHover","uTime","uAlpha"])
+for (const n of ["uView","uSize","uPos","uU","uRot","uC","uR","uM","uPeel","uLift","uLayer","uShadow","uTex","uBack","uFx","uMouse","uHover","uTime","uAlpha"])
   U[n] = gl.getUniformLocation(prog, n);
 gl.uniform1i(U.uTex, 0); gl.uniform1i(U.uBack, 1);
 
@@ -400,7 +368,7 @@ function addSticker(canvas, opts = {}) {
     lift: opts.lift ?? 0, liftV: 0, liftT: 0,
     alpha: opts.alpha ?? 1, alphaT: 1, scaleIn: opts.scaleIn ?? 1,
     hover: 0, mu: 0.5, mv: 0.5,
-    peel: null, carry: null, blob: opts.blob || null, dead: false,
+    peel: null, carry: null, av: 0, landing: false, blob: opts.blob || null, dead: false,
   };
   topLayer = Math.max(topLayer, s.layer);
   stickers.push(s);
@@ -444,6 +412,75 @@ function pick(px, py) {
   return null;
 }
 
+/* ---------- звуки (синтез, без файлов) ---------- */
+const sfx = (() => {
+  let ac = null, out, peelGain, peelSrc, peelFilt, noiseBuf;
+  function unlock() {
+    if (ac) { if (ac.state === "suspended") ac.resume(); return; }
+    try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
+    out = ac.createGain(); out.gain.value = 0.8;
+    const comp = ac.createDynamicsCompressor(); out.connect(comp); comp.connect(ac.destination);
+    // треск клея: шум с редкими щелчками разной силы
+    const len = ac.sampleRate * 3, b = ac.createBuffer(1, len, ac.sampleRate), d = b.getChannelData(0);
+    let env = 0;
+    for (let i = 0; i < len; i++) {
+      if (Math.random() < 0.0035) env = 0.35 + Math.random() * 0.9;
+      env *= 0.982;
+      d[i] = (Math.random() * 2 - 1) * (0.05 + env);
+    }
+    peelSrc = ac.createBufferSource(); peelSrc.buffer = b; peelSrc.loop = true;
+    peelFilt = ac.createBiquadFilter(); peelFilt.type = "bandpass"; peelFilt.frequency.value = 2600; peelFilt.Q.value = 0.6;
+    const hp = ac.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 500;
+    peelGain = ac.createGain(); peelGain.gain.value = 0;
+    peelSrc.connect(hp); hp.connect(peelFilt); peelFilt.connect(peelGain); peelGain.connect(out);
+    peelSrc.start();
+    const nl = ac.sampleRate >> 1; noiseBuf = ac.createBuffer(1, nl, ac.sampleRate);
+    const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nl; i++) nd[i] = Math.random() * 2 - 1;
+  }
+  function burst({ dur, type, freq, q = 0.7, gain, attack = 0.002, rate = 1, sweep }) {
+    if (!ac) return;
+    const t = ac.currentTime, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    src.buffer = noiseBuf; src.playbackRate.value = rate;
+    f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
+    if (sweep) f.frequency.exponentialRampToValueAtTime(sweep, t + dur);
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(out);
+    src.start(t, Math.random() * 0.3); src.stop(t + dur + 0.05);
+  }
+  function tone(f0, f1, dur, gain) {
+    if (!ac) return;
+    const t = ac.currentTime, o = ac.createOscillator(), g = ac.createGain();
+    o.type = "sine"; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.02);
+  }
+  return {
+    unlock,
+    // непрерывный треск отклеивания, громкость и тон — от скорости
+    peel(level) {
+      if (!ac) return;
+      const t = ac.currentTime, l = Math.max(0, Math.min(1, level));
+      peelGain.gain.setTargetAtTime(l * l * 0.9 + (l > 0.02 ? 0.02 : 0), t, 0.025);
+      peelSrc.playbackRate.setTargetAtTime(0.75 + l * 0.6, t, 0.05);
+      peelFilt.frequency.setTargetAtTime(1800 + l * 2600, t, 0.05);
+    },
+    // стикер сорвался целиком
+    rip(k = 1) { burst({ dur: 0.18, type: "bandpass", freq: 3200, q: 0.5, gain: 0.35 * k, sweep: 1400, rate: 1.2 }); },
+    // взяли за середину
+    lift() { burst({ dur: 0.05, type: "highpass", freq: 2500, gain: 0.12 }); },
+    // прилип: мягкий шлепок
+    stick(k = 1) {
+      if (k < 0.05) return;
+      burst({ dur: 0.09, type: "lowpass", freq: 900, gain: 0.5 * k, attack: 0.001 });
+      tone(160, 70, 0.11, 0.22 * k);
+      burst({ dur: 0.04, type: "highpass", freq: 3500, gain: 0.05 * k });
+    },
+    // в корзину
+    toss() { burst({ dur: 0.28, type: "bandpass", freq: 600, q: 0.8, gain: 0.3, attack: 0.03, sweep: 3000 }); },
+  };
+})();
+
 /* ---------- ввод ---------- */
 const ptr = { x: -1e4, y: -1e4 };
 let drag = null;
@@ -456,7 +493,8 @@ function overTrash(x, y) {
 }
 
 cv.addEventListener("pointerdown", e => {
-  ptr.x = e.clientX; ptr.y = e.clientY;
+  ptr.x = e.clientX; ptr.y = e.clientY; pl.x = ptr.x; pl.y = ptr.y; pv.x = pv.y = 0;
+  sfx.unlock();
   const s = pick(e.clientX, e.clientY);
   if (!s) return;
   e.preventDefault();
@@ -471,6 +509,7 @@ cv.addEventListener("pointerdown", e => {
   } else {
     drag = { s, mode: "carry", id: e.pointerId };
     startCarry(s, [lx, ly], null);
+    sfx.lift();
   }
   cv.className = "grabbing";
 });
@@ -505,7 +544,7 @@ cv.addEventListener("pointermove", e => {
     const [lx, ly] = toLocal(s, e.clientX, e.clientY);
     const vx = lx - drag.p0[0], vy = ly - drag.p0[1], l = Math.hypot(vx, vy);
     const inward = (vx * drag.grad[0] + vy * drag.grad[1]) / l;
-    if (inward < -0.35) { drag.mode = "carry"; startCarry(s, drag.p0, null); }
+    if (inward < -0.35) { drag.mode = "carry"; startCarry(s, drag.p0, null); sfx.rip(0.7); }
     else drag.mode = "peel";
   }
   if (drag.mode === "peel") {
@@ -513,16 +552,20 @@ cv.addEventListener("pointermove", e => {
     const vx = lx - drag.p0[0], vy = ly - drag.p0[1], D = Math.hypot(vx, vy);
     if (D < 0.5) { s.peel = null; return; }
     const u = [vx / D, vy / D];
-    s.peel = { p0: drag.p0, u, D, vD: 0, spring: false };
+    const prev = s.peel;
+    s.peel = { p0: drag.p0, u, D, vD: 0, spring: false,
+      phi: prev ? prev.phi : 0, phiT: prev ? prev.phiT : 0, lastD: prev ? prev.lastD : 0,
+      speed: prev ? prev.speed : 0, maxD: prev ? prev.maxD : 0 };
     // насколько отклеено: если больше 60% — стикер снят
     const [w, h] = size(s);
     let tmax = -1e9;
     for (const [cx, cy] of [[-w/2,-h/2],[w/2,-h/2],[-w/2,h/2],[w/2,h/2]]) tmax = Math.max(tmax, cx * u[0] + cy * u[1]);
     const t0 = drag.p0[0] * u[0] + drag.p0[1] * u[1];
-    const c = foldC(s, D, t0);
+    const c = foldC(s, D, t0, s.peel.phi);
     if ((c - t0) / Math.max(1, tmax - t0) > 0.6) {
       drag.mode = "carry";
       startCarry(s, drag.p0, s.peel);
+      sfx.rip(1);
     }
   }
   if (drag.mode === "carry") { placeCarry(s); trash.classList.toggle("hot", overTrash(e.clientX, e.clientY)); }
@@ -533,8 +576,8 @@ function endDrag(e) {
   const s = drag.s;
   if (drag.mode === "carry") {
     ptr.x = e.clientX; ptr.y = e.clientY; placeCarry(s);
-    if (overTrash(e.clientX, e.clientY)) { s.dead = true; s.alphaT = 0; s.liftT = 70; }
-    else s.liftT = 0;
+    if (overTrash(e.clientX, e.clientY)) { s.dead = true; s.alphaT = 0; s.liftT = 70; sfx.toss(); }
+    else { s.liftT = 0; s.landing = true; }
     s.carry = null;
   }
   if (s.peel) s.peel.spring = true;
@@ -565,15 +608,11 @@ addEventListener("keydown", e => {
   const n = +e.key;
   if (n >= 1 && n <= FX.length) setFx(n - 1);
   if ((e.key === "Backspace" || e.key === "Delete") && hovered && !drag) {
-    hovered.dead = true; hovered.alphaT = 0; hovered.liftT = 40; hovered = null; save();
+    hovered.dead = true; hovered.alphaT = 0; hovered.liftT = 40; hovered = null; sfx.toss(); save();
   }
 });
 
 /* ---------- свои картинки ---------- */
-const fileIn = document.getElementById("file");
-document.getElementById("add").onclick = () => fileIn.click();
-fileIn.onchange = () => { addFiles([...fileIn.files], innerWidth / 2, innerHeight / 2); fileIn.value = ""; };
-
 async function addFiles(files, x, y) {
   let i = 0;
   for (const f of files) {
@@ -583,7 +622,7 @@ async function addFiles(files, x, y) {
       const s = addSticker(dieCut(bmp), {
         x: x + i * 28, y: y + i * 22, rot: (Math.random() - 0.5) * 0.25, lift: 90, alpha: 0, scaleIn: 1.15,
       });
-      s.liftT = 0; s.alphaT = 1;
+      s.liftT = 0; s.alphaT = 1; s.landing = true;
       i++;
     } catch (err) { console.warn("не открылась картинка", f.name, err); }
   }
@@ -595,6 +634,7 @@ addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; dro
 addEventListener("dragover", e => e.preventDefault());
 addEventListener("drop", e => {
   e.preventDefault(); dragDepth = 0; dropEl.classList.remove("show");
+  sfx.unlock();
   addFiles([...e.dataTransfer.files], e.clientX, e.clientY);
 });
 addEventListener("paste", e => {
@@ -682,11 +722,13 @@ function resize() {
 addEventListener("resize", resize);
 resize();
 
-function foldC(s, D, t0) {
-  const R = peelR(s, D);
-  return t0 + (D + Math.PI * R) / 2;
+// Линия сгиба: язычок поднят под углом phi, его конец (в проекции) — под курсором.
+function foldC(s, D, t0, phi) {
+  const R = peelR(s, D), m = Math.PI - phi, cp = Math.cos(phi);
+  return (t0 + D + R * Math.sin(m) + (t0 + m * R) * cp) / (1 + cp);
 }
-function peelR(s, D) { return Math.min(s.long * 0.1, 2 + D * 0.22); }
+// винил жёсткий: радиус сгиба маленький и почти постоянный
+function peelR(s, D) { return Math.min(Math.max(s.long * 0.035, 5), 12, 1 + D * 0.3); }
 
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
@@ -694,18 +736,56 @@ gl.depthFunc(gl.LEQUAL);
 
 let last = performance.now();
 const t0ms = last;
+const pv = { x: 0, y: 0 }, pl = { x: 0, y: 0 };
 function frame(now) {
   const dt = Math.min(0.033, (now - last) / 1000); last = now;
+  if (dt > 0) {
+    const k = Math.min(1, dt * 14);
+    pv.x += ((ptr.x - pl.x) / dt - pv.x) * k; pv.y += ((ptr.y - pl.y) / dt - pv.y) * k;
+    if (Math.abs(pv.x) > 6000 || Math.abs(pv.y) > 6000) { pv.x = pv.y = 0; }
+    pl.x = ptr.x; pl.y = ptr.y;
+  }
   // физика
+  let peelLevel = 0;
   for (const s of stickers) {
     const p = s.peel;
-    if (p && p.spring) {
-      const k = 260, c = 2 * Math.sqrt(k) * 0.62;
-      p.vD += (-k * p.D - c * p.vD) * dt; p.D += p.vD * dt;
-      if (Math.abs(p.D) < 0.3 && Math.abs(p.vD) < 2) s.peel = null;
+    if (p) {
+      if (p.spring) {
+        // отпустил: язычок падает, клей притягивает сгиб обратно — без перескока
+        const k = 170, c = 2 * Math.sqrt(k) * 1.05;
+        p.vD += (-k * p.D - c * p.vD) * dt; p.D += p.vD * dt;
+        p.phiT = 0;
+        if (p.D < 0.4) { s.peel = null; if (!s.carry) sfx.stick(Math.min(1, p.maxD / 120)); }
+      } else {
+        // держат: язычок приподнят, на рывке — сильнее
+        const v = Math.abs(p.D - p.lastD) / Math.max(dt, 1e-3);
+        p.speed += (v - p.speed) * Math.min(1, dt * 10);
+        p.phiT = 0.38 + Math.min(p.speed * 0.0005, 0.45);
+      }
+      if (s.peel) {
+        p.phi += (p.phiT - p.phi) * Math.min(1, dt * (p.spring ? 14 : 8));
+        if (!s.carry) peelLevel = Math.max(peelLevel, p.spring ? Math.min(1, -p.vD / 900) * 0.45 : Math.min(1, p.speed / 700));
+        p.lastD = p.D;
+        p.maxD = Math.max(p.maxD, p.D);
+      }
     }
-    if (s.carry) placeCarry(s);
+    if (s.carry) {
+      // несёшь за точку: стикер по инерции разворачивается и тянется за рукой
+      const c0 = Math.cos(s.rot), n0 = Math.sin(s.rot);
+      const gx = s.carry.p0[0] * c0 - s.carry.p0[1] * n0, gy = s.carry.p0[0] * n0 + s.carry.p0[1] * c0;
+      const gl2 = Math.hypot(gx, gy);
+      if (gl2 > 4) {
+        const torque = (gx * -pv.y - gy * -pv.x) / gl2 * (gl2 / s.long);
+        s.av += torque * 0.045 * dt;
+      }
+      s.av *= Math.exp(-5 * dt);
+      s.rot += s.av * dt;
+      placeCarry(s);
+    } else {
+      s.av *= Math.exp(-10 * dt); s.rot += s.av * dt;
+    }
     { const k = 320, c = 2 * Math.sqrt(k) * 0.8; s.liftV += (k * (s.liftT - s.lift) - c * s.liftV) * dt; s.lift += s.liftV * dt; }
+    if (s.landing && s.lift < 3) { s.landing = false; sfx.stick(0.9); }
     s.alpha += (s.alphaT - s.alpha) * Math.min(1, dt * 12);
     s.scaleIn += (1 - s.scaleIn) * Math.min(1, dt * 10);
     const hv = (s === hovered && !drag) || (drag && drag.s === s && drag.mode !== "carry") ? 1 : 0;
@@ -715,6 +795,7 @@ function frame(now) {
       s.mu = lx / w + 0.5; s.mv = ly / h + 0.5;
     }
   }
+  sfx.peel(peelLevel);
   const before = stickers.length;
   stickers = stickers.filter(s => !(s.dead && s.alpha < 0.01));
   if (stickers.length !== before) save();
@@ -740,11 +821,12 @@ function frame(now) {
     gl.uniform1f(U.uAlpha, Math.max(0, Math.min(1, s.alpha)));
     const p = s.peel;
     if (p && p.D > 0.5) {
-      const R = peelR(s, p.D), t0 = (p.p0[0] * p.u[0] + p.p0[1] * p.u[1]) * sc;
+      const t0 = (p.p0[0] * p.u[0] + p.p0[1] * p.u[1]) * sc;
       gl.uniform1f(U.uPeel, 1);
       gl.uniform2f(U.uU, p.u[0], p.u[1]);
-      gl.uniform1f(U.uR, R);
-      gl.uniform1f(U.uC, t0 + (p.D + Math.PI * R) / 2);
+      gl.uniform1f(U.uR, peelR(s, p.D));
+      gl.uniform1f(U.uM, Math.PI - p.phi);
+      gl.uniform1f(U.uC, foldC(s, p.D, t0, p.phi));
     } else gl.uniform1f(U.uPeel, 0);
     gl.uniform2f(U.uMouse, s.mu, s.mv);
     gl.uniform1f(U.uHover, s.hover);
